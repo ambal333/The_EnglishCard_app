@@ -8,11 +8,11 @@ from datetime import datetime
 # ============================================================
 # НАСТРОЙКА СТРАНИЦЫ
 # ============================================================
-st.set_page_config(
-    page_title="EnglishCard - Изучение английского",
-    page_icon="📚",
-    layout="wide"
-)
+# st.set_page_config(
+#     page_title="EnglishCard - Изучение английского",
+#     page_icon="📚",
+#     layout="wide"
+# )
 
 
 # ============================================================
@@ -45,45 +45,77 @@ def init_database():
     """
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
+            # cur.execute('DROP TABLE  learning_stats; DROP TABLE words; DROP TABLE users')
             cur.execute('CREATE TABLE IF NOT EXISTS users(id SERIAL PRIMARY KEY,'
-                        'username VARCHAR(100) NOT NULL,'
-                        'created_at TIMESTAMP WITH ZONE DEFAULT CURRENT_TIMESTAMP);')
+                        'username VARCHAR(100) NOT NULL UNIQUE,'
+                        'created_at DATE DEFAULT CURRENT_DATE);')
 
-            cur.execute('CREATED TABLE IF NOT EXISTS common_words(id SERIAL PRIMARY KEY,'
-                        'russian_word VARCHAR(50), english_word VARCHAR(50),'
-                        'created_at TIMESTAMP WITH ZONE DEFAULT CURRENT_TIMESTAMP);')
+            cur.execute('CREATE TABLE IF NOT EXISTS words(id SERIAL PRIMARY KEY,'
+                        'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,'
+                        'russian_word VARCHAR(50) UNIQUE,'
+                        'english_word VARCHAR(50) UNIQUE,'
+                        'is_common BOOLEAN DEFAULT FALSE,' #FALSE - пользовательское слово, TRUE - общее слово 
+                        'created_at DATE DEFAULT CURRENT_DATE);')
 
-            cur.execute('CREATE TABLE IF NOT EXISTS user_words(id SERIAL PRIMARY KEY,'
-                        'user_id INTEGER NOT NULL REFERENCES users(id),'
-                        'russian_word VARCHAR(70),'
-                        'english_word VARCHAR(70),'
-                        'created_at TIMESTAMP WITH ZONE DEFAULT CURRENT_TIMESTAMP);')
+            # cur.execute('CREATE TABLE IF NOT EXISTS user_words(id SERIAL PRIMARY KEY,'
+            #             'user_id INTEGER NOT NULL REFERENCES users(id),'
+            #             'russian_word VARCHAR(70),'
+            #             'english_word VARCHAR(70),'
+            #             'created_at TIMESTAMP WITH ZONE DEFAULT CURRENT_TIMESTAMP);')
 
-            cur.execute('CREATE TABLE word_types(id SERIAL PRIMARY KEY, type INTEGER);')
+            # cur.execute('CREATE TABLE IF NOT EXISTS word_types(id SERIAL PRIMARY KEY, type VARCHAR(60) NOT NULL UNIQUE);')
 
-            cur.execute('CREATE TABLE learning_stats(id SERIAL PRIMARY KEY,'
-                        'user_id INTEGER NOT NULL REFERENCES users(id),'
-                        'word_id INTEGER,'
-                        'word_type INTEGER NOT NULL REFERENCES word_types(id),'
+            cur.execute('CREATE TABLE IF NOT EXISTS learning_stats(id SERIAL PRIMARY KEY,'
+                        'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,'
+                        'word_id INTEGER NOT NULL REFERENCES words(id) ON DELETE CASCADE,'
                         'correct_answers INTEGER DEFAULT 0,'
                         'total_attempts INTEGER DEFAULT 0,'
-                        'last_reviewed TIMESTAMP);')
-
+                        'last_reviewed DATE DEFAULT CURRENT_DATE);')
+            # cur.execute('DELETE FROM words()')
+            conn.commit()
+            # cur.execute('SELECT id FROM users')
+            # print(cur.fetchall())
+            cur.execute('SELECT * FROM words')
+            print(cur.fetchall())
+def insert_words():
+    with get_db_connection() as conn:
+        with get_cursor(conn) as cur:
+            words = [('хлеб', 'bread'), ('молоко', 'milk'), ('яблоко', 'apple'), ('вода', 'water'), ('апельсин', 'orange'),
+                     ('рыба', 'fish'), ('яйцо', 'egg'), ('чай', 'tea'), ('скорость', 'speed'), ('грустный', 'sad')]
+            for i in words:
+                cur.execute('INSERT INTO words(russian_word, english_word, is_common) VALUES(%s,%s,TRUE);', (i[0], i[1]))
+                conn.commit()
 def login_user(username):
     """
     TODO: Реализовать вход пользователя
     Если пользователь существует - вернуть его id
     Если нет - создать нового и вернуть его id
     """
-    pass
-
+    with get_db_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute('SELECT id FROM users WHERE username = %s;', (username,))
+            user = cur.fetchone()
+            if user:
+                return user[0]
+            else:
+                cur.execute('INSERT INTO users(username) VALUES(%s) RETURNING id;', (username,))
+                new_user = cur.fetchone()
+                conn.commit()
+                return new_user[0]
 
 def get_user_words(user_id):
     """
     TODO: Получить все слова пользователя (общие + персональные)
     Возвращает список словарей: [{'id': 1, 'russian_word': 'красный', 'english_word': 'red', 'word_type': 'common'}, ...]
     """
-    pass
+    user_words=[]
+    dict_words={'id':None,'russian_word': None,'english_word':None,'is_common':None}
+    with get_db_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute('SELECT user_id, russian_word, english_word, is_common FROM words WHERE user_id = %s OR is_common = %s;',(user_id,True))
+            for i in cur.fetchall():
+                user_words.append({'id':i[0],'russian_word': i[1],'english_word':i[2],'is_common':i[3]})
+            return user_words
 
 
 def add_personal_word(user_id, russian_word, english_word):
@@ -92,7 +124,22 @@ def add_personal_word(user_id, russian_word, english_word):
     Проверить, нет ли уже такого слова
     Возвращает True/False
     """
-    pass
+    with get_db_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute('SELECT russian_word FROM words')
+            list_words=[]
+            words = cur.fetchall()
+            for i in words:
+                list_words.append(i[0])
+            if russian_word in list_words:
+                return False
+            else:
+                cur.execute(
+                    'INSERT INTO words(user_id, russian_word, english_word, is_common) VALUES(%s,%s,%s,FALSE);',
+                    (user_id, russian_word, english_word))
+                conn.commit()
+                return True
+
 
 
 def delete_personal_word(user_id, word_id):
@@ -100,14 +147,22 @@ def delete_personal_word(user_id, word_id):
     TODO: Удалить персональное слово пользователя
     Возвращает True/False
     """
-    pass
-
+    with get_db_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute('SELECT id FROM words WHERE user_id = %s AND id = %s;',(user_id,word_id))
+            user = cur.fetchone()
+            if user:
+                cur.execute('DELETE FROM words WHERE id = %s and user_id =%s;',(word_id,user_id))
+                conn.commit()
+                return True
+            else:
+                return False
 
 def update_stats(user_id, word_id, word_type, is_correct):
     """
     TODO: Обновить статистику изучения слова
     """
-    pass
+
 
 
 def get_statistics(user_id):
@@ -143,7 +198,25 @@ def render_sidebar():
     - Приветствие после входа
     - Кнопка выхода
     """
-    pass
+    if 'user_name' not in st.session_state:
+        st.session_state.user_name = None
+    with st.sidebar:
+        st.write('Добро пожаловать!')
+        if st.session_state.user_name is None:
+            name_input = st.text_input("Введите ваше имя:")
+            if st.button('Зарегистрироваться'):
+                if name_input:
+                    st.session_state.user_name = name_input
+                    st.rerun()
+                else:
+                    st.warning("Пожалуйста, введите имя")
+        else:
+            st.write(f"Приятно познакомиться, {st.session_state.user_name}!")
+
+            if st.button('exit'):
+                st.session_state.user_name = None
+                st.rerun()
+
 
 
 def render_study_tab(words):
@@ -201,16 +274,25 @@ def render_schema():
 # ============================================================
 
 def main():
+    init_database()
+    # insert_words()
+    print(login_user('Dmitriy'))
+    print(login_user('Oleg'))
+    # print(get_user_words(1))
+    print(add_personal_word(1,'собака','dog'))
+    # print(delete_personal_word(1,13))
+    print(get_user_words(1))
     """
     Главная функция приложения
     TODO: Реализовать основную логику:
     1. Инициализация БД
     2. Авторизация пользователя
     3. Отображение вкладок с функционалом
-    4. Приветственное сообщение для неавторизованных пользователей
+    4. Приветственное сообщение для неавторизованных пользователей 
+    
     """
 
-    st.title("📚 EnglishCard - Изучай английский с удовольствием!")
+    # st.title("📚 EnglishCard - Изучай английский с удовольствием!")
 
     # TODO: Инициализация состояния сессии
     # st.session_state.user_id
