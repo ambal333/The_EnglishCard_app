@@ -1,23 +1,15 @@
 import streamlit as st
 import psycopg2
+import random
 from contextlib import contextmanager
 import pandas as pd
 import random
 from datetime import datetime
-
-# ============================================================
-# НАСТРОЙКА СТРАНИЦЫ
-# ============================================================
-# st.set_page_config(
-#     page_title="EnglishCard - Изучение английского",
-#     page_icon="📚",
-#     layout="wide"
-# )
-
-
-# ============================================================
-# РАБОТА С БАЗОЙ ДАННЫХ (НЕОБХОДИМО РЕАЛИЗОВАТЬ)
-# ============================================================
+st.set_page_config(
+    page_title="EnglishCard - Изучение английского",
+    page_icon="📚",
+    layout="wide"
+)
 @contextmanager
 def get_db_connection():
     connect = psycopg2.connect(host = 'localhost', database = 'english_card', user = 'postgres', password = 'postgres')
@@ -33,16 +25,6 @@ def get_cursor(conn):
     finally:
         cur.close()
 def init_database():
-    """
-    TODO: Реализовать создание таблиц, если они не существуют
-    Необходимые таблицы:
-    1. users (id, username, created_at)
-    2. common_words (id, russian_word, english_word, created_at)
-    3. user_words (id, user_id, russian_word, english_word, created_at)
-    4. learning_stats (id, user_id, word_id, word_type, correct_answers, total_attempts, last_reviewed)
-
-    Также заполнить common_words начальными словами (минимум 10 слов)
-    """
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
             # cur.execute('DROP TABLE  learning_stats; DROP TABLE words; DROP TABLE users')
@@ -86,11 +68,7 @@ def insert_words():
                 cur.execute('INSERT INTO words(russian_word, english_word, is_common) VALUES(%s,%s,TRUE);', (i[0], i[1]))
                 conn.commit()
 def login_user(username):
-    """
-    TODO: Реализовать вход пользователя
-    Если пользователь существует - вернуть его id
-    Если нет - создать нового и вернуть его id
-    """
+
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute('SELECT id FROM users WHERE username = %s;', (username,))
@@ -104,10 +82,6 @@ def login_user(username):
                 return new_user[0]
 
 def get_user_words(user_id):
-    """
-    TODO: Получить все слова пользователя (общие + персональные)
-    Возвращает список словарей: [{'id': 1, 'russian_word': 'красный', 'english_word': 'red', 'word_type': 'common'}, ...]
-    """
     user_words=[]
     dict_words={'id':None,'russian_word': None,'english_word':None,'is_common':None}
     with get_db_connection() as conn:
@@ -119,11 +93,6 @@ def get_user_words(user_id):
 
 
 def add_personal_word(user_id, russian_word, english_word):
-    """
-    TODO: Добавить персональное слово для пользователя
-    Проверить, нет ли уже такого слова
-    Возвращает True/False
-    """
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute('SELECT russian_word FROM words')
@@ -143,10 +112,6 @@ def add_personal_word(user_id, russian_word, english_word):
 
 
 def delete_personal_word(user_id, word_id):
-    """
-    TODO: Удалить персональное слово пользователя
-    Возвращает True/False
-    """
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute('SELECT id FROM words WHERE user_id = %s AND id = %s;',(user_id,word_id))
@@ -183,7 +148,20 @@ def generate_options(correct_word, all_words):
     Один вариант - правильный перевод, остальные - случайные слова из словаря
     Если слов не хватает, можно добавить слова-заглушки
     """
-    pass
+    help_words = ["moon", "grass", "window", "bread", "snow"]
+    correct = correct_word['english_word']
+    other_words = [i['english_word'] for i in all_words if i['english_word'] != correct]
+    random.shuffle(other_words)
+    three_mix = other_words[:3]
+    for i in help_words:
+        if len(three_mix) == 3:
+            break
+        if i != correct and i not in three_mix:
+            three_mix.append(i)
+    result = [correct] + three_mix
+    random.shuffle(result)
+    return result
+
 
 
 # ============================================================
@@ -191,13 +169,7 @@ def generate_options(correct_word, all_words):
 # ============================================================
 
 def render_sidebar():
-    """
-    TODO: Реализовать боковую панель с авторизацией
-    - Поле для ввода имени
-    - Кнопка входа
-    - Приветствие после входа
-    - Кнопка выхода
-    """
+    name_input=''
     if 'user_name' not in st.session_state:
         st.session_state.user_name = None
     with st.sidebar:
@@ -211,23 +183,25 @@ def render_sidebar():
                 else:
                     st.warning("Пожалуйста, введите имя")
         else:
-            st.write(f"Приятно познакомиться, {st.session_state.user_name}!")
-
+            st.success(f"Вы вошли как {st.session_state.user_name}!")
             if st.button('exit'):
                 st.session_state.user_name = None
                 st.rerun()
-
-
+    return name_input
 
 def render_study_tab(words):
-    """
-    TODO: Реализовать вкладку изучения слов
-    - Отображение текущего слова на русском
-    - 4 кнопки с вариантами перевода
-    - Обработка правильных/неправильных ответов
-    - Кнопка следующего слова
-    """
-    pass
+    if "idx" not in st.session_state:
+        st.session_state.idx = 0
+    word = words[st.session_state.idx % len(words)]
+    st.markdown(f"### {word['russian_word']}")
+    options = generate_options(word, words)
+
+    for i in options:
+        if st.button(i, key=i):
+            if i == word["english_word"]:
+                st.success(f"{word['english_word']} 🎉")
+            else:
+                st.error(f"Неправильно. Ответ: {word['english_word']}")
 
 
 def render_add_word_tab():
@@ -274,14 +248,14 @@ def render_schema():
 # ============================================================
 
 def main():
-    init_database()
+    # init_database()
     # insert_words()
-    print(login_user('Dmitriy'))
-    print(login_user('Oleg'))
+    # print(login_user('Dmitriy'))
+    # print(login_user('Oleg'))
     # print(get_user_words(1))
-    print(add_personal_word(1,'собака','dog'))
+    # print(add_personal_word(1,'собака','dog'))
     # print(delete_personal_word(1,13))
-    print(get_user_words(1))
+    # print(get_user_words(1))
     """
     Главная функция приложения
     TODO: Реализовать основную логику:
@@ -292,18 +266,20 @@ def main():
     
     """
 
-    # st.title("📚 EnglishCard - Изучай английский с удовольствием!")
+    st.title("📚 EnglishCard - Изучай английский с удовольствием!")
 
     # TODO: Инициализация состояния сессии
     # st.session_state.user_id
     # st.session_state.username
 
     # TODO: Инициализация БД
-    # init_database()
+    init_database()
 
     # TODO: Боковая панель с авторизацией
-    # render_sidebar()
 
+    username = render_sidebar()
+    user_id = login_user(username)
+    render_study_tab(get_user_words(user_id))
     # TODO: Основной контент в зависимости от авторизации
     # if st.session_state.user_id:
     #     words = get_user_words(st.session_state.user_id)
