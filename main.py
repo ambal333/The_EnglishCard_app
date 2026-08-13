@@ -56,7 +56,7 @@ def init_database():
             # cur.execute('DELETE FROM words()')
             conn.commit()
             # cur.execute('SELECT id FROM users')
-            # cur.execute('SELECT * FROM users;')
+            # cur.execute('SELECT * FROM words where user_id = %s;',(2,))
             # print(cur.fetchall())
             # cur.execute('SELECT * FROM words where user_id = %s;',(3,))
 
@@ -194,7 +194,8 @@ def render_study_tab(words):
     if "idx" not in st.session_state:
         st.session_state.idx = 0
     word = words[st.session_state.idx % len(words)]
-    st.markdown(f"### {word['russian_word']}")
+    st.markdown(f"## Изучаем английские слова")
+    st.markdown(f"### Слово: {word['russian_word']}")
     if st.session_state.get("options_word") != word["russian_word"]:
         st.session_state.options_word = word["russian_word"]
         st.session_state.options = generate_options(word, words)
@@ -230,7 +231,14 @@ def render_add_word_tab():
     - Кнопка добавления
     - Уведомление об успешном добавлении
     """
-    pass
+    st.write('Введите слово на русском:')
+    new_russian_word = st.text_input('Русское слово')
+    st.write('Введите слово на английском:')
+    new_english_word = st.text_input('English word')
+    if st.button('Добавить слово'):
+        add_personal_word(st.session_state.user_id,new_russian_word,new_english_word)
+        st.success("слово добавлено в базу данных")
+
 
 
 def render_delete_word_tab(words):
@@ -302,19 +310,18 @@ def main():
 
     st.session_state.user_id = login_user(st.session_state.user_name)
 
-    print(f'user_id:{st.session_state.user_name}')
-    render_study_tab(get_user_words(st.session_state.user_id))
+    print(f'user_id:{st.session_state.user_id}')
+    # render_study_tab(get_user_words(st.session_state.user_id))
     # TODO: Основной контент в зависимости от авторизации
     # if st.session_state.user_id:
     #     words = get_user_words(st.session_state.user_id)
-    #     # Создание вкладок
-    #     tab1, tab2, tab3, tab4 = st.tabs(["📖 Изучение", "➕ Добавить слово", "🗑️ Удалить слово", "📊 Статистика"])
-    #     with tab1:
-    #         render_study_tab(words)
-    #     # ... остальные вкладки
-    # else:
-    #     # Приветственное сообщение
-    #     pass
+        # Создание вкладок
+    tab1, tab2, tab3, tab4 = st.tabs(["📖 Изучение", "➕ Добавить слово", "🗑️ Удалить слово", "📊 Статистика"])
+    with tab1:
+        render_study_tab(get_user_words(st.session_state.user_id))
+    with tab2:
+        render_add_word_tab()
+
 
 
 if __name__ == "__main__":
