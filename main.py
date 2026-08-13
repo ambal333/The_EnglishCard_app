@@ -56,9 +56,11 @@ def init_database():
             # cur.execute('DELETE FROM words()')
             conn.commit()
             # cur.execute('SELECT id FROM users')
+            # cur.execute('SELECT * FROM users;')
             # print(cur.fetchall())
-            cur.execute('SELECT * FROM words')
-            print(cur.fetchall())
+            # cur.execute('SELECT * FROM words where user_id = %s;',(3,))
+
+            # print(cur.fetchall())
 def insert_words():
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
@@ -154,7 +156,7 @@ def generate_options(correct_word, all_words):
     random.shuffle(other_words)
     three_mix = other_words[:3]
     for i in help_words:
-        if len(three_mix) == 3:
+        if len(three_mix) >= 3:
             break
         if i != correct and i not in three_mix:
             three_mix.append(i)
@@ -169,7 +171,6 @@ def generate_options(correct_word, all_words):
 # ============================================================
 
 def render_sidebar():
-    name_input=''
     if 'user_name' not in st.session_state:
         st.session_state.user_name = None
     with st.sidebar:
@@ -187,21 +188,38 @@ def render_sidebar():
             if st.button('exit'):
                 st.session_state.user_name = None
                 st.rerun()
-    return name_input
+    return st.session_state.user_name
 
 def render_study_tab(words):
     if "idx" not in st.session_state:
         st.session_state.idx = 0
     word = words[st.session_state.idx % len(words)]
     st.markdown(f"### {word['russian_word']}")
-    options = generate_options(word, words)
+    if st.session_state.get("options_word") != word["russian_word"]:
+        st.session_state.options_word = word["russian_word"]
+        st.session_state.options = generate_options(word, words)
+        st.session_state.answer = None  # новое слово → сброс ответа
 
-    for i in options:
-        if st.button(i, key=i):
-            if i == word["english_word"]:
-                st.success(f"{word['english_word']} 🎉")
-            else:
-                st.error(f"Неправильно. Ответ: {word['english_word']}")
+    options = st.session_state.options
+
+    # --- кнопки в одну линию ---
+    cols = st.columns(len(options))
+    for i, o in enumerate(options):
+        with cols[i]:
+            if st.button(o, key=o):
+                st.session_state.answer = o  # запоминаем клик
+
+    # --- результат под кнопками, на всю ширину ---
+    if st.session_state.get("answer"):
+        if st.session_state.answer == word["english_word"]:
+            st.success("Правильно!🎉")
+        else:
+            st.error(f"Неправильно. Ответ: {word['english_word']}")
+
+    # --- следующее слово ---
+    if st.button("Дальше →"):
+        st.session_state.idx += 1
+        st.rerun()
 
 
 def render_add_word_tab():
@@ -270,7 +288,7 @@ def main():
 
     # TODO: Инициализация состояния сессии
     # st.session_state.user_id
-    # st.session_state.username
+    # st.session_state.user_name
 
     # TODO: Инициализация БД
     init_database()
@@ -278,8 +296,14 @@ def main():
     # TODO: Боковая панель с авторизацией
 
     username = render_sidebar()
-    user_id = login_user(username)
-    render_study_tab(get_user_words(user_id))
+    if username is None:
+        st.stop()
+    print(username)
+
+    st.session_state.user_id = login_user(st.session_state.user_name)
+
+    print(f'user_id:{st.session_state.user_name}')
+    render_study_tab(get_user_words(st.session_state.user_id))
     # TODO: Основной контент в зависимости от авторизации
     # if st.session_state.user_id:
     #     words = get_user_words(st.session_state.user_id)
