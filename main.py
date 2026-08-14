@@ -4,6 +4,7 @@ import random
 from contextlib import contextmanager
 import pandas as pd
 import random
+import time
 from datetime import datetime
 st.set_page_config(
     page_title="EnglishCard - Изучение английского",
@@ -61,6 +62,15 @@ def init_database():
             # cur.execute('SELECT * FROM words where user_id = %s;',(3,))
 
             # print(cur.fetchall())
+
+
+def get_word_id(word):
+    word_id=''
+    with get_db_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute('SELECT id FROM words where english_word = %s;',(word,))
+            word_id = cur.fetchone()
+    return word_id[0]
 def insert_words():
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
@@ -235,9 +245,14 @@ def render_add_word_tab():
     new_russian_word = st.text_input('Русское слово')
     st.write('Введите слово на английском:')
     new_english_word = st.text_input('English word')
+
     if st.button('Добавить слово'):
-        add_personal_word(st.session_state.user_id,new_russian_word,new_english_word)
-        st.success("слово добавлено в базу данных")
+        if new_russian_word and new_english_word:
+            add_personal_word(st.session_state.user_id,new_russian_word,new_english_word)
+            st.success("слово добавлено в базу данных")
+        else:
+            st.warning("Пожалуйста, введите слова")
+
 
 
 
@@ -248,7 +263,35 @@ def render_delete_word_tab(words):
     - Кнопка удаления
     - Подтверждение удаления
     """
-    pass
+
+    personal_words = []
+
+    for item in words:
+        if item['id'] == 2 or item['is_common'] == False:
+            personal_words.append(item['english_word'])
+    if st.button('Get personal words'):
+        st.session_state.show_words = True
+    if st.session_state.get("show_words"):
+        st.write(f'Персональные слова: {' '.join(personal_words)}')
+
+    if st.button('Delete word'):
+        st.session_state.show_delete = True
+    if st.session_state.get("show_delete"):
+        st.write('Какое слово вы хотите удалить?')
+        word = st.text_input('Слово:')
+        if st.button('Подтвердите удаление слова'):
+            if word:
+                word_id = get_word_id(word)
+                delete_personal_word(st.session_state.user_id,word_id)
+                st.success("слово удалено")
+            else:
+                st.error("Пожалуйста, введите слово")
+
+
+
+
+
+
 
 
 def render_statistics_tab(user_id):
@@ -302,25 +345,27 @@ def main():
     init_database()
 
     # TODO: Боковая панель с авторизацией
-
     username = render_sidebar()
     if username is None:
         st.stop()
     print(username)
 
     st.session_state.user_id = login_user(st.session_state.user_name)
-
+    print(f'user_words: {get_user_words(st.session_state.user_id)}')
     print(f'user_id:{st.session_state.user_id}')
+    # print(render_delete_word_tab(get_user_words(st.session_state.user_id)))
     # render_study_tab(get_user_words(st.session_state.user_id))
     # TODO: Основной контент в зависимости от авторизации
     # if st.session_state.user_id:
-    #     words = get_user_words(st.session_state.user_id)
+    words = get_user_words(st.session_state.user_id)
         # Создание вкладок
     tab1, tab2, tab3, tab4 = st.tabs(["📖 Изучение", "➕ Добавить слово", "🗑️ Удалить слово", "📊 Статистика"])
     with tab1:
-        render_study_tab(get_user_words(st.session_state.user_id))
+        render_study_tab(words)
     with tab2:
         render_add_word_tab()
+    with tab3:
+        render_delete_word_tab(words)
 
 
 
