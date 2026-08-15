@@ -25,7 +25,7 @@ def get_cursor(conn):
 def init_database():
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
-            # cur.execute('DROP TABLE  learning_stats; DROP TABLE words; DROP TABLE users')
+            # cur.execute('DROP TABLE  learning_stats; DROP TABLE words; DROP TABLE users') #удалить бд
             cur.execute('CREATE TABLE IF NOT EXISTS users(id SERIAL PRIMARY KEY,'
                         'username VARCHAR(100) NOT NULL UNIQUE,'
                         'created_at DATE DEFAULT CURRENT_DATE);')
@@ -57,9 +57,11 @@ def insert_words():
         with get_cursor(conn) as cur:
             words = [('хлеб', 'bread'), ('молоко', 'milk'), ('яблоко', 'apple'), ('вода', 'water'), ('апельсин', 'orange'),
                      ('рыба', 'fish'), ('яйцо', 'egg'), ('чай', 'tea'), ('скорость', 'speed'), ('грустный', 'sad')]
-            for i in words:
-                cur.execute('INSERT INTO words(russian_word, english_word, is_common) VALUES(%s,%s,TRUE);', (i[0], i[1]))
-                conn.commit()
+            cur.execute("SELECT COUNT(*) FROM words WHERE is_common = TRUE")
+            if cur.fetchone()[0] == 0:
+                for i in words:
+                    cur.execute('INSERT INTO words(russian_word, english_word, is_common) VALUES(%s,%s,TRUE);', (i[0], i[1]))
+                    conn.commit()
 def login_user(username):
 
     with get_db_connection() as conn:
@@ -76,15 +78,12 @@ def login_user(username):
 
 def get_user_words(user_id):
     user_words=[]
-    # insert_words()
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute('SELECT user_id, russian_word, english_word, is_common FROM words WHERE user_id = %s OR is_common = %s;',(user_id,True))
             for i in cur.fetchall():
                 user_words.append({'id':i[0],'russian_word': i[1],'english_word':i[2],'is_common':i[3]})
             return user_words
-
-
 
 def add_personal_word(user_id, russian_word, english_word):
     with get_db_connection() as conn:
@@ -102,8 +101,6 @@ def add_personal_word(user_id, russian_word, english_word):
                     (user_id, russian_word, english_word))
                 conn.commit()
                 return True
-
-
 
 def delete_personal_word(user_id, word_id):
     with get_db_connection() as conn:
@@ -132,6 +129,7 @@ def update_stats(user_id, word_id, correct_answers, total_attempts):
             else:
                 cur.execute('UPDATE learning_stats SET correct_answers =  correct_answers + %s, total_attempts = total_attempts + 1 WHERE user_id = %s AND word_id = %s;',(correct_answers,user_id, word_id))
                 conn.commit()
+
 def get_statistics(user_id):
     """
     TODO: Получить статистику пользователя
@@ -147,7 +145,6 @@ def get_statistics(user_id):
     for i in user_statistic:
         stats.append({'user_id': i[0], 'word': i[1], 'correct_answers': i[2], 'total_attempts': i[3], 'last_reviewed': i[4]})
     return stats
-
 
 # ============================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -171,8 +168,6 @@ def generate_options(correct_word, all_words):
     result = [correct] + three_mix
     random.shuffle(result)
     return result
-
-
 
 # ============================================================
 # ИНТЕРФЕЙС ПРИЛОЖЕНИЯ (НЕОБХОДИМО ДОРАБОТАТЬ)
@@ -201,9 +196,7 @@ def render_sidebar():
 def render_study_tab(words):
     if "idx" not in st.session_state:
         st.session_state.idx = 0
-    print(len(words))
     word = words[st.session_state.idx % len(words)]
-
     st.markdown(f"## Изучаем английские слова")
     st.markdown(f"### Слово: {word['russian_word']}")
     if st.session_state.get("options_word") != word["russian_word"]:
@@ -229,7 +222,6 @@ def render_study_tab(words):
         st.session_state.idx += 1
         st.rerun()
 
-
 def render_add_word_tab():
     """
     TODO: Реализовать вкладку добавления слова
@@ -250,9 +242,6 @@ def render_add_word_tab():
         else:
             st.warning("Пожалуйста, введите слова")
 
-
-
-
 def render_delete_word_tab(words):
     """
     TODO: Реализовать вкладку удаления слова
@@ -260,9 +249,7 @@ def render_delete_word_tab(words):
     - Кнопка удаления
     - Подтверждение удаления
     """
-
     personal_words = []
-
     for item in words:
         if item['id'] == 2 or item['is_common'] == False:
             personal_words.append(item['english_word'])
@@ -283,13 +270,6 @@ def render_delete_word_tab(words):
                 st.success("слово удалено")
             else:
                 st.error("Пожалуйста, введите слово")
-
-
-
-
-
-
-
 
 def render_statistics_tab(user_id):
     word_stats = get_statistics(user_id)
@@ -342,6 +322,7 @@ def render_schema():
 
 def main():
     st.title("📚 EnglishCard - Изучай английский с удовольствием!")
+    insert_words()
     init_database()
     username = render_sidebar()
     if username is None:
