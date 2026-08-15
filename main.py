@@ -1,11 +1,8 @@
 import streamlit as st
 import psycopg2
-import random
 from contextlib import contextmanager
 import pandas as pd
 import random
-import time
-from datetime import datetime
 st.set_page_config(
     page_title="EnglishCard - Изучение английского",
     page_icon="📚",
@@ -40,29 +37,13 @@ def init_database():
                         'is_common BOOLEAN DEFAULT FALSE,' #FALSE - пользовательское слово, TRUE - общее слово 
                         'created_at DATE DEFAULT CURRENT_DATE);')
 
-            # cur.execute('CREATE TABLE IF NOT EXISTS user_words(id SERIAL PRIMARY KEY,'
-            #             'user_id INTEGER NOT NULL REFERENCES users(id),'
-            #             'russian_word VARCHAR(70),'
-            #             'english_word VARCHAR(70),'
-            #             'created_at TIMESTAMP WITH ZONE DEFAULT CURRENT_TIMESTAMP);')
-
-            # cur.execute('CREATE TABLE IF NOT EXISTS word_types(id SERIAL PRIMARY KEY, type VARCHAR(60) NOT NULL UNIQUE);')
-
             cur.execute('CREATE TABLE IF NOT EXISTS learning_stats(id SERIAL PRIMARY KEY,'
                         'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,'
                         'word_id INTEGER NOT NULL REFERENCES words(id) ON DELETE CASCADE,'
                         'correct_answers INTEGER DEFAULT 0,'
                         'total_attempts INTEGER DEFAULT 0,'
                         'last_reviewed DATE DEFAULT CURRENT_DATE);')
-            # cur.execute('DELETE FROM words()')
             conn.commit()
-            # cur.execute('SELECT id FROM users')
-            # cur.execute('SELECT * FROM words where user_id = %s;',(2,))
-            # print(cur.fetchall())
-            # cur.execute('SELECT * FROM words where user_id = %s;',(3,))
-
-            # print(cur.fetchall())
-
 
 def get_word_id(word):
     word_id=''
@@ -95,13 +76,14 @@ def login_user(username):
 
 def get_user_words(user_id):
     user_words=[]
-    dict_words={'id':None,'russian_word': None,'english_word':None,'is_common':None}
+    # insert_words()
     with get_db_connection() as conn:
         with get_cursor(conn) as cur:
             cur.execute('SELECT user_id, russian_word, english_word, is_common FROM words WHERE user_id = %s OR is_common = %s;',(user_id,True))
             for i in cur.fetchall():
                 user_words.append({'id':i[0],'russian_word': i[1],'english_word':i[2],'is_common':i[3]})
             return user_words
+
 
 
 def add_personal_word(user_id, russian_word, english_word):
@@ -135,19 +117,36 @@ def delete_personal_word(user_id, word_id):
             else:
                 return False
 
-def update_stats(user_id, word_id, word_type, is_correct):
+def update_stats(user_id, word_id, correct_answers, total_attempts):
     """
     TODO: Обновить статистику изучения слова
     """
+    with get_db_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute('SELECT user_id, word_id FROM learning_stats WHERE user_id = %s AND word_id = %s;',(user_id, word_id))
+            present = cur.fetchone()
 
-
-
+            if present is None:
+                cur.execute('INSERT INTO learning_stats(user_id, word_id, correct_answers, total_attempts) VALUES(%s, %s, %s, %s);',(user_id, word_id, correct_answers, total_attempts))
+                conn.commit()
+            else:
+                cur.execute('UPDATE learning_stats SET correct_answers =  correct_answers + %s, total_attempts = total_attempts + 1 WHERE user_id = %s AND word_id = %s;',(correct_answers,user_id, word_id))
+                conn.commit()
 def get_statistics(user_id):
     """
     TODO: Получить статистику пользователя
     Возвращает словарь со статистикой
     """
-    pass
+    user_statistic = ''
+    stats = []
+    with get_db_connection() as conn:
+        with get_cursor(conn) as cur:
+            cur.execute('SELECT learning_stats.user_id, words.english_word, learning_stats.correct_answers, learning_stats.total_attempts, learning_stats.last_reviewed FROM learning_stats JOIN words ON words.id = learning_stats.word_id WHERE learning_stats.user_id = %s;',(user_id,))
+            user_statistic = cur.fetchall()
+
+    for i in user_statistic:
+        stats.append({'user_id': i[0], 'word': i[1], 'correct_answers': i[2], 'total_attempts': i[3], 'last_reviewed': i[4]})
+    return stats
 
 
 # ============================================================
@@ -156,7 +155,6 @@ def get_statistics(user_id):
 
 def generate_options(correct_word, all_words):
     """
-    TODO: Сгенерировать 4 варианта ответа для викторины
     Один вариант - правильный перевод, остальные - случайные слова из словаря
     Если слов не хватает, можно добавить слова-заглушки
     """
@@ -203,31 +201,30 @@ def render_sidebar():
 def render_study_tab(words):
     if "idx" not in st.session_state:
         st.session_state.idx = 0
+    print(len(words))
     word = words[st.session_state.idx % len(words)]
+
     st.markdown(f"## Изучаем английские слова")
     st.markdown(f"### Слово: {word['russian_word']}")
     if st.session_state.get("options_word") != word["russian_word"]:
         st.session_state.options_word = word["russian_word"]
         st.session_state.options = generate_options(word, words)
-        st.session_state.answer = None  # новое слово → сброс ответа
-
+        st.session_state.answer = None
     options = st.session_state.options
-
-    # --- кнопки в одну линию ---
     cols = st.columns(len(options))
     for i, o in enumerate(options):
         with cols[i]:
-            if st.button(o, key=o):
-                st.session_state.answer = o  # запоминаем клик
-
-    # --- результат под кнопками, на всю ширину ---
+            if st.button(o, key=f"opt_{i}"):
+                st.session_state.answer = o
+                if o == word['english_word']:
+                    update_stats(st.session_state.user_id,get_word_id(word['english_word']),1, 1)
+                else:
+                    update_stats(st.session_state.user_id,get_word_id(word['english_word']),0,1)
     if st.session_state.get("answer"):
-        if st.session_state.answer == word["english_word"]:
-            st.success("Правильно!🎉")
+        if st.session_state.answer == word['english_word']:
+            st.success("Правильно! 🎉")
         else:
             st.error(f"Неправильно. Ответ: {word['english_word']}")
-
-    # --- следующее слово ---
     if st.button("Дальше →"):
         st.session_state.idx += 1
         st.rerun()
@@ -295,79 +292,75 @@ def render_delete_word_tab(words):
 
 
 def render_statistics_tab(user_id):
-    """
-    TODO: Реализовать вкладку статистики (дополнительное требование)
-    - Количество изученных слов
-    - Количество попыток
-    - Процент правильных ответов
-    - История последних попыток
-    """
-    pass
+    word_stats = get_statistics(user_id)
+    correct_answers = 0
+    total_attempts = 0
+    user_column = []
+    if st.button('Получить статистику пользователя'):
+        st.write(f'Количество изученных слов: {len(word_stats)}')
+        for i in word_stats:
+            total_attempts += i['total_attempts']
+            correct_answers += i['correct_answers']
+            user_column.append({'Слово':i['word'], 'Правильно': i['correct_answers'],'Всего попыток':i['total_attempts'],'last_reviewed':i['last_reviewed']})
+        st.write(f'Процент правильных ответов: {(correct_answers*100)//total_attempts}%')
+        df = pd.DataFrame(user_column)
+        df["Ошибки"] = df["Всего попыток"] - df["Правильно"]
+        st.table(df)
+        long = df.melt(
+            id_vars="Слово",
+            value_vars=["Правильно", "Ошибки"],
+            var_name="Тип",
+            value_name="Значение",
+        )
+        st.bar_chart(long, x="Слово", y="Значение", color="Тип", stack=False)
+
 
 
 def render_schema():
     """
     TODO: Реализовать отображение схемы базы данных (дополнительное требование)
     """
-    pass
+    if st.button('Получить схему Базы Данных'):
+        shema = '''
+        digraph DB {
+            rankdir=LR;
+            node [shape=record, fontname="Arial", fontsize=11];
+    
+            users [label="{users|id PK\\lusername\\lcreated_at\\l}"];
+            words [label="{words|id PK\\luser_id FK\\lrussian_word\\lenglish_word\\lis_common\\lcreated_at\\l}"];
+            stats [label="{learning_stats|id PK\\luser_id FK\\lword_id FK\\lcorrect_answers\\ltotal_attempts\\llast_reviewed\\l}"];
+    
+            words -> users;
+            stats -> users;
+            stats -> words;
+        }
+        '''
 
+        st.subheader("Схема БД")
+        st.graphviz_chart(shema)
 
-# ============================================================
-# ГЛАВНАЯ ФУНКЦИЯ
-# ============================================================
 
 def main():
-    # init_database()
-    # insert_words()
-    # print(login_user('Dmitriy'))
-    # print(login_user('Oleg'))
-    # print(get_user_words(1))
-    # print(add_personal_word(1,'собака','dog'))
-    # print(delete_personal_word(1,13))
-    # print(get_user_words(1))
-    """
-    Главная функция приложения
-    TODO: Реализовать основную логику:
-    1. Инициализация БД
-    2. Авторизация пользователя
-    3. Отображение вкладок с функционалом
-    4. Приветственное сообщение для неавторизованных пользователей 
-    
-    """
-
     st.title("📚 EnglishCard - Изучай английский с удовольствием!")
-
-    # TODO: Инициализация состояния сессии
-    # st.session_state.user_id
-    # st.session_state.user_name
-
-    # TODO: Инициализация БД
     init_database()
-
-    # TODO: Боковая панель с авторизацией
     username = render_sidebar()
     if username is None:
         st.stop()
-    print(username)
-
-    st.session_state.user_id = login_user(st.session_state.user_name)
-    print(f'user_words: {get_user_words(st.session_state.user_id)}')
-    print(f'user_id:{st.session_state.user_id}')
-    # print(render_delete_word_tab(get_user_words(st.session_state.user_id)))
-    # render_study_tab(get_user_words(st.session_state.user_id))
-    # TODO: Основной контент в зависимости от авторизации
-    # if st.session_state.user_id:
-    words = get_user_words(st.session_state.user_id)
+    else:
+        st.session_state.user_id = login_user(st.session_state.user_name)
+        words = get_user_words(st.session_state.user_id)
         # Создание вкладок
-    tab1, tab2, tab3, tab4 = st.tabs(["📖 Изучение", "➕ Добавить слово", "🗑️ Удалить слово", "📊 Статистика"])
-    with tab1:
-        render_study_tab(words)
-    with tab2:
-        render_add_word_tab()
-    with tab3:
-        render_delete_word_tab(words)
-
-
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📖 Изучение", "➕ Добавить слово", "🗑️ Удалить слово", "📊 Статистика","Схема базы данных"])
+        with tab1:
+            render_study_tab(words)
+        with tab2:
+            render_add_word_tab()
+        with tab3:
+            render_delete_word_tab(words)
+        with tab4:
+            render_statistics_tab(st.session_state.user_id)
+        with tab5:
+            render_schema()
 
 if __name__ == "__main__":
     main()
