@@ -3,7 +3,3 @@
 createbd -U postgres english_card
 
 password: ваш пароль
-
-запуск программы:
-
-streamlit run main.py
